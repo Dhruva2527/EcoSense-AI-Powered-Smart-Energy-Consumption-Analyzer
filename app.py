@@ -30,6 +30,7 @@ st.set_page_config(
 # THEME STATE INITIALIZATION
 # --------------------------------------------------
 
+<<<<<<< HEAD
 if "theme" not in st.session_state:
     st.session_state.theme = "Light"
 
@@ -72,6 +73,269 @@ else:
     plotly_paper = "#ffffff"
     plotly_text = "#0f172a"
     accent_green = "#059669"
+=======
+st.markdown("""
+<style>
+    :root {
+        color-scheme: light;
+    }
+
+    /* Main page and sidebar */
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background: #F7FAF7 !important;
+        color: #17251B !important;
+    }
+
+    [data-testid="stHeader"] {
+        background: #F7FAF7 !important;
+    }
+
+    [data-testid="stSidebar"] {
+        background: #EAF4EB !important;
+    }
+
+    /* Main text */
+    .stApp,
+    .stApp p,
+    .stApp label,
+    .stApp h1,
+    .stApp h2,
+    .stApp h3,
+    .stApp h4,
+    .stApp li,
+    .stApp [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] span {
+        color: #17251B;
+    }
+
+    .stApp [data-testid="stCaptionContainer"],
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: #526B59 !important;
+    }
+
+    .main-title {
+        font-size: 34px;
+        font-weight: 800;
+        color: #176B3A !important;
+        margin-bottom: 4px;
+    }
+
+    .subtitle {
+        color: #526B59 !important;
+        margin-bottom: 25px;
+    }
+
+    /* Metric and content cards */
+    .metric-card {
+        background: #FFFFFF;
+        padding: 20px;
+        border: 1px solid #DCE9DE;
+        border-radius: 14px;
+        box-shadow: 0 2px 8px rgba(20, 70, 35, 0.06);
+    }
+
+    .metric-label {
+        color: #526B59 !important;
+        font-size: 14px;
+    }
+
+    .metric-value {
+        color: #176B3A !important;
+        font-size: 27px;
+        font-weight: 800;
+        margin-top: 8px;
+    }
+
+    .metric-note {
+        color: #647568 !important;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+
+    .section-card {
+        background: #FFFFFF;
+        border: 1px solid #DCE9DE;
+        padding: 20px;
+        border-radius: 14px;
+        margin-bottom: 18px;
+    }
+
+    .section-title {
+        color: #176B3A !important;
+        font-size: 19px;
+        font-weight: 700;
+        margin-bottom: 12px;
+    }
+
+    .recommendation {
+        background: #EFF7F0;
+        border-left: 4px solid #269653;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+    }
+
+    .footer {
+        text-align: center;
+        color: #526B59 !important;
+        padding: 25px 0 10px;
+        font-size: 13px;
+    }
+
+    /* File uploader: drop area, instructions, icons and browse button */
+    [data-testid="stFileUploader"],
+    [data-testid="stFileUploader"] > section,
+    [data-testid="stFileUploader"] section {
+        color: #17251B !important;
+    }
+
+    [data-testid="stFileUploader"] section {
+        background: #FFFFFF !important;
+        border: 2px dashed #198747 !important;
+        border-radius: 12px !important;
+        padding: 18px !important;
+    }
+
+    [data-testid="stFileUploader"] section *,
+    [data-testid="stFileUploader"] small,
+    [data-testid="stFileUploader"] span,
+    [data-testid="stFileUploader"] label,
+    [data-testid="stFileUploader"] p {
+        color: #17251B !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stFileUploader"] svg {
+        color: #198747 !important;
+        fill: #198747 !important;
+    }
+
+    [data-testid="stFileUploader"] button {
+        background: #EAF4EB !important;
+        color: #176B3A !important;
+        border: 1px solid #198747 !important;
+    }
+
+    [data-testid="stFileUploader"] button * {
+        color: #176B3A !important;
+    }
+
+    /* All Streamlit buttons */
+    .stButton > button,
+    .stDownloadButton > button,
+    [data-testid="stFileUploader"] button {
+        background: #198747 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #198747 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+
+    .stButton > button *,
+    .stDownloadButton > button * {
+        color: #FFFFFF !important;
+    }
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
+        background: #126B36 !important;
+        border-color: #126B36 !important;
+    }
+
+    /* Text input, number input and text area */
+    [data-testid="stTextInput"] input,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stTextArea"] textarea {
+        background: #FFFFFF !important;
+        color: #17251B !important;
+        border: 1px solid #B9CEBD !important;
+        -webkit-text-fill-color: #17251B !important;
+    }
+
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stTextArea"] textarea::placeholder {
+        color: #718176 !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stNumberInput"] button {
+        background: #EAF4EB !important;
+        color: #176B3A !important;
+        border: 1px solid #B9CEBD !important;
+    }
+
+    [data-testid="stNumberInput"] button svg {
+        color: #176B3A !important;
+        fill: #176B3A !important;
+    }
+
+    /* Select boxes and dropdown menus */
+    [data-baseweb="select"] > div,
+    [data-baseweb="popover"],
+    [role="listbox"],
+    [role="option"] {
+        background: #FFFFFF !important;
+        color: #17251B !important;
+    }
+
+    [data-baseweb="select"] *,
+    [role="option"] * {
+        color: #17251B !important;
+    }
+
+    /* Radio buttons and sidebar navigation */
+    [data-testid="stRadio"] label,
+    [data-testid="stRadio"] label p {
+        color: #17251B !important;
+    }
+
+    [data-testid="stRadio"] svg {
+        color: #198747 !important;
+        fill: #198747 !important;
+    }
+
+    [data-testid="stSidebar"] svg {
+        color: #198747 !important;
+    }
+
+    /* Data tables */
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        background: #FFFFFF !important;
+        color: #17251B !important;
+    }
+
+    /* Alerts and status messages */
+    [data-testid="stAlert"] {
+        color: #17251B !important;
+    }
+
+    [data-testid="stAlert"] p {
+        color: #17251B !important;
+    }
+
+    /* Slider labels and values */
+    [data-testid="stSlider"] label,
+    [data-testid="stSlider"] [data-testid="stMarkdownContainer"] {
+        color: #17251B !important;
+    }
+
+    /* Keep icons visible */
+    .stApp svg {
+        opacity: 1;
+    }
+
+    /* Progress bar */
+    [data-testid="stProgressBar"] > div > div {
+        background: #198747 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+>>>>>>> 13070a8 (Improve EcoSense UI with accessible light theme)
 
 st.markdown(theme_css, unsafe_allow_html=True)
 
