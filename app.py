@@ -1,263 +1,861 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from pathlib import Path
 import plotly.express as px
+from pathlib import Path
 
-# Imports matching your team's module structure
-from modules.data_cleaner import clean_energy_data, aggregate_daily, compute_summary_analytics
+from modules.data_cleaner import (
+    clean_energy_data,
+    aggregate_daily,
+    compute_summary_analytics,
+)
 from modules.anomaly_detection import detect_anomalies
-from modules.prediction import train_and_forecast
-from modules.cost_estimator import estimate_electricity_cost
+from modules.prediction import train_and_forecast, forecast_summary
 from modules.recommendations import calculate_energy_score_and_recs
+from modules.cost_estimator import estimate_electricity_cost
+
+
+# --------------------------------------------------
+# PAGE CONFIGURATION
+# --------------------------------------------------
 
 st.set_page_config(
-    page_title="EcoSense | Smart Energy Intelligence",
+    page_title="EcoSense | Smart Energy Analyzer",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# Load CSS safely (fallback to default styling if CSS file is missing)
-CSS_PATH = Path(__file__).parent / "assets" / "style.css"
-if CSS_PATH.exists():
-    st.markdown(f"<style>{CSS_PATH.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
-else:
-    st.markdown(
-        """
-        <style>
-        .metric-card { background-color: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 10px; }
-        .panel { background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
-        .insight-box { background-color: #e8f4f8; padding: 12px; border-radius: 6px; border-left: 4px solid #17a2b8; }
-        .summary-line { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f3f5; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+# --------------------------------------------------
+# WHITE AND GREEN THEME
+# --------------------------------------------------
 
-# Helper function to generate built-in sample data
-def make_sample_data():
-    dates = pd.date_range(start="2026-10-01", periods=30, freq="D")
-    np.random.seed(42)
-    values = np.random.uniform(8.0, 11.5, size=30)
-    # Inject deliberate spikes for testing demo
-    values[4] = 24.5  # Oct 5 Spike
-    values[17] = 28.2 # Oct 18 Spike
-    df_sample = pd.DataFrame({'timestamp': dates, 'consumption_kwh': np.round(values, 2)})
-    return df_sample
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #f7faf7;
+        color: #17251b;
+    }
 
-# Session State Initialization
-if "energy_df" not in st.session_state:
-    st.session_state.energy_df = make_sample_data()
-if "source_name" not in st.session_state:
-    st.session_state.source_name = "Built-in demonstration dataset"
-if "tariff" not in st.session_state:
-    st.session_state.tariff = 7.0
+    [data-testid="stSidebar"] {
+        background-color: #eaf4eb;
+    }
 
-def fmt_num(value, digits=1):
-    return f"{value:,.{digits}f}"
+    h1, h2, h3, h4, p, label, span {
+        color: #17251b;
+    }
 
-def metric_card(label, value, suffix="", note="", icon="⚡"):
+    .main-title {
+        font-size: 34px;
+        font-weight: 800;
+        color: #176b3a;
+        margin-bottom: 4px;
+    }
+
+    .subtitle {
+        color: #627267;
+        margin-bottom: 25px;
+    }
+
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border: 1px solid #dce9de;
+        border-radius: 14px;
+        box-shadow: 0 2px 8px rgba(20, 70, 35, 0.05);
+    }
+
+    .metric-label {
+        color: #647568;
+        font-size: 14px;
+    }
+
+    .metric-value {
+        color: #176b3a;
+        font-size: 27px;
+        font-weight: 800;
+        margin-top: 8px;
+    }
+
+    .metric-note {
+        color: #829087;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+
+    .section-card {
+        background: white;
+        border: 1px solid #dce9de;
+        padding: 20px;
+        border-radius: 14px;
+        margin-bottom: 18px;
+    }
+
+    .section-title {
+        color: #176b3a;
+        font-size: 19px;
+        font-weight: 700;
+        margin-bottom: 12px;
+    }
+
+    .recommendation {
+        background: #eff7f0;
+        border-left: 4px solid #269653;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+    }
+
+    .footer {
+        text-align: center;
+        color: #849087;
+        padding: 25px 0 10px 0;
+        font-size: 13px;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #198747;
+        border-color: #198747;
+        color: white;
+    }
+
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #126b36;
+        border-color: #126b36;
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# --------------------------------------------------
+# DATA LOADING
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).parent
+SAMPLE_FILE = BASE_DIR / "sample_data" / "normal_usage.csv"
+
+
+def prepare_data(raw_df):
+    """Clean input data and prepare the model-compatible columns."""
+    cleaned = clean_energy_data(raw_df)
+
+    if cleaned.empty:
+        raise ValueError("The dataset has no valid records.")
+
+    # The ML modules expect the column name 'kwh'.
+    cleaned["kwh"] = cleaned["consumption_kwh"]
+
+    daily = aggregate_daily(cleaned)
+
+    if daily.empty:
+        raise ValueError("Unable to create daily energy summaries.")
+
+    # The anomaly and recommendation modules use 'kwh'.
+    daily_model = daily.copy()
+    daily_model["kwh"] = daily_model["consumption_kwh"]
+
+    return cleaned, daily, daily_model
+
+
+def load_sample_data():
+    if not SAMPLE_FILE.exists():
+        raise FileNotFoundError(
+            "sample_data/normal_usage.csv was not found."
+        )
+
+    raw = pd.read_csv(SAMPLE_FILE)
+    return prepare_data(raw)
+
+
+if "energy_data" not in st.session_state:
+    try:
+        cleaned, daily, daily_model = load_sample_data()
+        st.session_state.energy_data = cleaned
+        st.session_state.daily_data = daily
+        st.session_state.daily_model = daily_model
+        st.session_state.source_name = "Normal usage sample dataset"
+    except Exception as error:
+        st.error(f"Could not load sample data: {error}")
+        st.stop()
+
+
+df = st.session_state.energy_data.copy()
+daily = st.session_state.daily_data.copy()
+daily_model = st.session_state.daily_model.copy()
+
+tariff = st.session_state.get("tariff", 7.0)
+
+
+# --------------------------------------------------
+# COMMON METRICS
+# --------------------------------------------------
+
+summary = compute_summary_analytics(daily)
+
+if not summary:
+    st.error("No summary information is available.")
+    st.stop()
+
+bill = estimate_electricity_cost(
+    summary["total_kwh"],
+    rate_per_kwh=tariff,
+)
+
+
+def metric_card(label, value, note=""):
     st.markdown(
         f"""
         <div class="metric-card">
-          <div class="metric-top"><span>{icon}</span><span class="metric-label">{label}</span></div>
-          <div class="metric-value" style="font-size: 1.8rem; font-weight: bold;">{value} <small style="font-size: 1rem;">{suffix}</small></div>
-          <div class="metric-note" style="color: #6c757d; font-size: 0.85rem;">{note}</div>
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+            <div class="metric-note">{note}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# Preprocessing current active data
-cleaned_df = clean_energy_data(st.session_state.energy_df)
-daily = aggregate_daily(cleaned_df)
-metrics = compute_summary_analytics(daily)
-cost_info = estimate_electricity_cost(metrics.get("total_kwh", 0), rate_per_kwh=st.session_state.tariff)
+
+# --------------------------------------------------
+# HEADER AND NAVIGATION
+# --------------------------------------------------
+
+st.markdown(
+    '<div class="main-title">🌿 EcoSense</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    'AI-Powered Smart Energy Consumption Analyzer'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+with st.sidebar:
+    st.markdown("## 🌿 EcoSense")
+    st.caption("SMART ENERGY INTELLIGENCE")
+    st.divider()
+
+    page = st.radio(
+        "Navigation",
+        [
+            "Overview",
+            "Upload Data",
+            "Analytics",
+            "Anomaly Detection",
+            "Predictions",
+            "Recommendations",
+        ],
+    )
+
+    st.divider()
+
+    tariff = st.number_input(
+        "Electricity rate (₹/kWh)",
+        min_value=0.0,
+        max_value=100.0,
+        value=float(st.session_state.get("tariff", 7.0)),
+        step=0.5,
+    )
+
+    st.session_state.tariff = tariff
+
+    st.caption("Current dataset")
+    st.write(st.session_state.source_name)
+
+
+# --------------------------------------------------
+# OVERVIEW
+# --------------------------------------------------
+
+if page == "Overview":
+
+    st.header("Energy Overview")
+    st.caption("A snapshot of your electricity consumption.")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card(
+            "Total Consumption",
+            f'{summary["total_kwh"]:,.2f} kWh',
+            "Total recorded usage",
+        )
+
+    with c2:
+        metric_card(
+            "Daily Average",
+            f'{summary["daily_avg_kwh"]:,.2f} kWh',
+            "Average daily consumption",
+        )
+
+    with c3:
+        metric_card(
+            "Peak Consumption",
+            f'{summary["peak_usage_kwh"]:,.2f} kWh',
+            summary["peak_date"],
+        )
+
+    with c4:
+        metric_card(
+            "Estimated Electricity Bill",
+            f'₹{bill["total_estimated_cost"]:,.2f}',
+            f"Rate: ₹{tariff:.2f}/kWh",
+        )
+
+    st.divider()
+
+    left, right = st.columns([1.6, 1])
+
+    with left:
+        st.subheader("Daily Energy Consumption")
+
+        fig = px.area(
+            daily,
+            x="timestamp",
+            y="consumption_kwh",
+            markers=True,
+            labels={
+                "timestamp": "Date",
+                "consumption_kwh": "Consumption (kWh)",
+            },
+        )
+
+        fig.update_traces(
+            line_color="#198747",
+            fillcolor="rgba(25,135,71,0.12)",
+        )
+
+        fig.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    with right:
+        st.subheader("Usage Summary")
+
+        st.write("**Lowest usage**")
+        st.write(f'{summary["lowest_usage_kwh"]:.2f} kWh')
+
+        st.write("**Lowest usage date**")
+        st.write(summary["lowest_date"])
+
+        st.write("**Recorded days**")
+        st.write(len(daily))
+
+        st.write("**Estimated energy charge**")
+        st.write(f'₹{bill["energy_charge"]:,.2f}')
+
+        st.write("**Fixed charge**")
+        st.write(f'₹{bill["fixed_charge"]:,.2f}')
+
+        st.write("**Estimated tax**")
+        st.write(f'₹{bill["tax_charge"]:,.2f}')
+
+        st.info(
+            "The electricity bill is an estimate based on the "
+            "configured rate and simplified fixed-charge and tax assumptions."
+        )
+
+
+# --------------------------------------------------
+# UPLOAD DATA
+# --------------------------------------------------
+
+elif page == "Upload Data":
+
+    st.header("Upload Energy Dataset")
+
+    st.write(
+        "Upload a CSV file containing timestamp and consumption_kwh columns."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Choose your CSV file",
+        type=["csv"],
+    )
+
+    st.caption("Expected columns: timestamp, consumption_kwh")
+
+    if uploaded_file is not None:
+
+        try:
+            raw = pd.read_csv(uploaded_file)
+
+            cleaned, new_daily, new_daily_model = prepare_data(raw)
+
+            st.success(
+                f"Successfully cleaned {len(cleaned):,} records."
+            )
+
+            st.write("Dataset preview")
+            st.dataframe(
+                cleaned.head(10),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.write(
+                f"Date range: {cleaned['timestamp'].min()} "
+                f"to {cleaned['timestamp'].max()}"
+            )
+
+            if st.button("Use Uploaded Dataset", type="primary"):
+
+                st.session_state.energy_data = cleaned
+                st.session_state.daily_data = new_daily
+                st.session_state.daily_model = new_daily_model
+                st.session_state.source_name = uploaded_file.name
+
+                st.success("Dataset successfully activated!")
+                st.rerun()
+
+        except Exception as error:
+            st.error(f"Unable to process CSV: {error}")
+
+    st.divider()
+
+    st.subheader("Active Dataset")
+
+    st.dataframe(
+        df.head(10),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        "Download Active Dataset",
+        df.to_csv(index=False).encode("utf-8"),
+        "ecosense_cleaned_data.csv",
+        "text/csv",
+    )
+
+    if st.button("Restore Sample Dataset"):
+
+        try:
+            cleaned, new_daily, new_daily_model = load_sample_data()
+
+            st.session_state.energy_data = cleaned
+            st.session_state.daily_data = new_daily
+            st.session_state.daily_model = new_daily_model
+            st.session_state.source_name = "Normal usage sample dataset"
+
+            st.success("Sample dataset restored.")
+            st.rerun()
+
+        except Exception as error:
+            st.error(f"Unable to restore sample data: {error}")
+
+
+# --------------------------------------------------
+# ANALYTICS
+# --------------------------------------------------
+
+elif page == "Analytics":
+
+    st.header("Energy Analytics")
+
+    period = st.selectbox(
+        "Select analysis period",
+        ["Daily", "Weekly", "Monthly"],
+    )
+
+    if period == "Daily":
+
+        chart_data = daily.copy()
+        title = "Daily Consumption"
+
+    elif period == "Weekly":
+
+        chart_data = (
+            df.set_index("timestamp")
+            .resample("W")["consumption_kwh"]
+            .sum()
+            .reset_index()
+        )
+        title = "Weekly Consumption"
+
+    else:
+
+        chart_data = (
+            df.set_index("timestamp")
+            .resample("MS")["consumption_kwh"]
+            .sum()
+            .reset_index()
+        )
+        title = "Monthly Consumption"
+
+    fig = px.bar(
+        chart_data,
+        x="timestamp",
+        y="consumption_kwh",
+        title=title,
+        labels={
+            "timestamp": "Date",
+            "consumption_kwh": "Consumption (kWh)",
+        },
+    )
+
+    fig.update_traces(marker_color="#269653")
+
+    fig.update_layout(
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Consumption by Weekday")
+
+    weekday_data = (
+        df.groupby("day_of_week")["consumption_kwh"]
+        .mean()
+        .reindex(range(7))
+        .reset_index()
+    )
+
+    weekday_names = [
+        "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday", "Sunday",
+    ]
+
+    weekday_data["weekday"] = weekday_data["day_of_week"].map(
+        dict(enumerate(weekday_names))
+    )
+
+    weekday_fig = px.bar(
+        weekday_data,
+        x="weekday",
+        y="consumption_kwh",
+        labels={
+            "weekday": "Day",
+            "consumption_kwh": "Average consumption (kWh)",
+        },
+    )
+
+    weekday_fig.update_traces(marker_color="#198747")
+
+    st.plotly_chart(weekday_fig, use_container_width=True)
+
+    st.subheader("Daily Statistics")
+
+    st.dataframe(
+        daily[
+            ["timestamp", "consumption_kwh"]
+        ].rename(
+            columns={
+                "timestamp": "Date",
+                "consumption_kwh": "Consumption (kWh)",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# --------------------------------------------------
+# ANOMALY DETECTION
+# --------------------------------------------------
+
+elif page == "Anomaly Detection":
+
+    st.header("Anomaly Detection")
+
+    st.caption(
+        "Isolation Forest identifies readings that differ from "
+        "the usual consumption pattern."
+    )
+
+    try:
+
+        anomaly_data = detect_anomalies(
+            df,
+            time_col="timestamp",
+            value_col="kwh",
+        )
+
+        anomalies = anomaly_data[
+            anomaly_data["is_anomaly"]
+        ]
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            metric_card(
+                "Unusual Readings",
+                str(len(anomalies)),
+                "Potential anomalies",
+            )
+
+        with c2:
+            metric_card(
+                "Normal Readings",
+                str(len(anomaly_data) - len(anomalies)),
+                "Within expected pattern",
+            )
+
+        with c3:
+            metric_card(
+                "Detection Method",
+                "Isolation Forest",
+                "Unsupervised machine learning",
+            )
+
+        fig = px.scatter(
+            anomaly_data,
+            x="timestamp",
+            y="kwh",
+            color="is_anomaly",
+            color_discrete_map={
+                True: "#dc4545",
+                False: "#198747",
+            },
+            labels={
+                "timestamp": "Date and Time",
+                "kwh": "Consumption (kWh)",
+                "is_anomaly": "Anomaly",
+            },
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Detected Unusual Readings")
+
+        if anomalies.empty:
+            st.success("No unusual readings were detected.")
+        else:
+            st.warning(
+                f"{len(anomalies)} unusual reading(s) detected. "
+                "An anomaly does not automatically mean energy wastage."
+            )
+
+            st.dataframe(
+                anomalies[
+                    [
+                        "timestamp",
+                        "kwh",
+                        "typical_kwh",
+                        "excess_kwh",
+                        "severity",
+                        "reason",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    except Exception as error:
+        st.error(f"Anomaly detection failed: {error}")
+
+
+# --------------------------------------------------
+# PREDICTIONS
+# --------------------------------------------------
+
+elif page == "Predictions":
+
+    st.header("Energy Consumption Forecast")
+
+    horizon_days = st.slider(
+        "Forecast duration (days)",
+        min_value=3,
+        max_value=14,
+        value=7,
+    )
+
+    if st.button("Generate Forecast", type="primary"):
+
+        try:
+
+            with st.spinner("Training Random Forest model..."):
+
+                forecast_df, model_metrics = train_and_forecast(
+                    df,
+                    horizon_hours=horizon_days * 24,
+                    time_col="timestamp",
+                    value_col="kwh",
+                )
+
+            st.session_state.forecast_df = forecast_df
+            st.session_state.forecast_metrics = model_metrics
+
+            st.success("Forecast generated successfully!")
+
+        except Exception as error:
+            st.error(f"Unable to generate forecast: {error}")
+
+    if "forecast_df" in st.session_state:
+
+        forecast_df = st.session_state.forecast_df
+        model_metrics = st.session_state.forecast_metrics
+
+        forecast_totals = forecast_summary(
+            forecast_df,
+            tariff,
+        )
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            metric_card(
+                "Forecast Consumption",
+                f'{forecast_totals["total_kwh"]:.2f} kWh',
+                "For selected forecast period",
+            )
+
+        with c2:
+            metric_card(
+                "Estimated Energy Cost",
+                f'₹{forecast_totals["est_cost"]:,.2f}',
+                "Forecast energy charge only",
+            )
+
+        with c3:
+            metric_card(
+                "Model MAE",
+                f'{model_metrics["mae"]:.3f}',
+                "Validation error in kWh",
+            )
+
+        history_chart = daily[["timestamp", "consumption_kwh"]].copy()
+        history_chart = history_chart.rename(
+            columns={"consumption_kwh": "kwh"}
+        )
+        history_chart["Type"] = "Historical"
+
+        future_chart = forecast_df[
+            ["timestamp", "kwh"]
+        ].copy()
+        future_chart["Type"] = "Forecast"
+
+        combined = pd.concat(
+            [history_chart, future_chart],
+            ignore_index=True,
+        )
+
+        fig = px.line(
+            combined,
+            x="timestamp",
+            y="kwh",
+            color="Type",
+            markers=True,
+            color_discrete_map={
+                "Historical": "#198747",
+                "Forecast": "#e49b28",
+            },
+            labels={
+                "timestamp": "Date",
+                "kwh": "Consumption (kWh)",
+            },
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Forecast Results")
+
+        st.dataframe(
+            forecast_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.download_button(
+            "Download Forecast CSV",
+            forecast_df.to_csv(index=False).encode("utf-8"),
+            "ecosense_forecast.csv",
+            "text/csv",
+        )
+
+        st.write("**Model:**", model_metrics["model_name"])
+        st.write("**Frequency detected:**", model_metrics["freq"])
+        st.write("**Training rows:**", model_metrics["train_rows"])
+        st.write("**RMSE:**", round(model_metrics["rmse"], 3))
+        st.write("**MAPE:**", f'{model_metrics["mape"]:.2f}%')
+
+        st.caption(
+            "Forecasts are estimates based on historical data. "
+            "Accuracy depends on the quantity and quality of readings."
+        )
+
+
+# --------------------------------------------------
+# RECOMMENDATIONS
+# --------------------------------------------------
+
+elif page == "Recommendations":
+
+    st.header("Smart Energy Recommendations")
+
+    try:
+
+        recommendation_anomalies = detect_anomalies(
+            daily_model,
+            time_col="timestamp",
+            value_col="kwh",
+        )
+
+        score, recommendations = calculate_energy_score_and_recs(
+            daily,
+            recommendation_anomalies,
+        )
+
+        st.subheader("Energy Efficiency Score")
+
+        c1, c2 = st.columns([1, 2])
+
+        with c1:
+            st.metric(
+                "Efficiency Score",
+                f"{score}/100",
+            )
+
+            st.progress(score / 100)
+
+        with c2:
+
+            if score >= 80:
+                st.success("Good energy efficiency performance.")
+            elif score >= 50:
+                st.warning("There is room to improve energy efficiency.")
+            else:
+                st.error("Your consumption pattern needs attention.")
+
+        st.divider()
+
+        st.subheader("Recommended Actions")
+
+        for recommendation in recommendations:
+
+            with st.container(border=True):
+
+                st.markdown(
+                    f"### {recommendation['title']}"
+                )
+
+                st.write(recommendation["body"])
+
+                if recommendation["type"] == "warning":
+                    st.warning("Attention required")
+                elif recommendation["type"] == "success":
+                    st.success("Positive trend")
+                else:
+                    st.info("General recommendation")
+
+    except Exception as error:
+        st.error(f"Unable to generate recommendations: {error}")
+
+
+# --------------------------------------------------
+# FOOTER
+# --------------------------------------------------
 
 st.markdown(
     """
-    <div class="app-header" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0;">
-      <div class="brand-wrap" style="display: flex; align-items: center; gap: 10px;">
-        <div class="brand-mark" style="font-size: 2rem;">🌿</div>
-        <div>
-          <div class="brand-name" style="font-size: 1.5rem; font-weight: bold;">EcoSense</div>
-          <div class="brand-sub" style="font-size: 0.75rem; color: #6c757d; letter-spacing: 1px;">SMART ENERGY INTELLIGENCE</div>
-        </div>
-      </div>
-      <div class="header-status" style="color: #28a745; font-weight: 500;">🟢 DEMO SYSTEM ONLINE</div>
+    <div class="footer">
+        🌿 EcoSense | Understand Your Energy. Detect Waste. Save Smarter.
     </div>
     """,
     unsafe_allow_html=True,
 )
-
-nav_items = ["Overview", "Upload Data", "Analytics", "Anomaly Detection", "Predictions", "Recommendations"]
-page = st.radio("Navigation", nav_items, horizontal=True, label_visibility="collapsed", key="main_navigation")
-st.markdown('<hr style="margin: 10px 0 20px 0; border: none; border-top: 1px solid #e9ecef;">', unsafe_allow_html=True)
-
-page_descriptions = {
-    "Overview": "A clear snapshot of your household energy performance.",
-    "Upload Data": "Import your electricity readings and validate the dataset.",
-    "Analytics": "Explore consumption patterns across days and months.",
-    "Anomaly Detection": "Find unusually high or low usage patterns in your readings.",
-    "Predictions": "Estimate upcoming energy demand from historical consumption.",
-    "Recommendations": "Turn your energy data into practical next steps.",
-}
-st.markdown(f'<div style="font-size: 0.75rem; color: #6c757d; font-weight: 600;">ENERGY WORKSPACE / {page.upper()}</div>', unsafe_allow_html=True)
-st.markdown(f'<h2 style="margin-top:0;">{page}</h2><p style="color:#6c757d;">{page_descriptions[page]}</p>', unsafe_allow_html=True)
-
-# ----------------- OVERVIEW TAB -----------------
-if page == "Overview":
-    st.markdown('<h4>Your energy at a glance <span style="font-size:0.8rem; background:#e9ecef; padding:3px 8px; border-radius:12px;">DEMO DATA</span></h4>', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4, gap="small")
-    with c1: metric_card("Total consumption", fmt_num(metrics["total_kwh"]), "kWh", "Across selected dataset", "⚡")
-    with c2: metric_card("Daily average", fmt_num(metrics["daily_avg_kwh"]), "kWh", "Average per recorded day", "📊")
-    with c3: metric_card("Highest usage", fmt_num(metrics["peak_usage_kwh"]), "kWh", f"Peak on {metrics['peak_date']}", "↗")
-    with c4: metric_card("Estimated bill", f"₹{cost_info['total_estimated_cost']:,.0f}", "", f"At ₹{st.session_state.tariff:.2f} per kWh", "₹")
-
-    left, right = st.columns([1.65, 1], gap="small")
-    with left:
-        st.markdown('<div class="panel"><b>Consumption trend</b><br><small style="color:#6c757d;">Daily electricity usage · kWh</small>', unsafe_allow_html=True)
-        fig_trend = px.line(daily, x='timestamp', y='consumption_kwh', labels={'timestamp': 'Date', 'consumption_kwh': 'kWh'})
-        st.plotly_chart(fig_trend, use_container_width=True, config={"displayModeBar": False})
-        st.markdown('</div>', unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="panel"><b>Usage summary</b><br><small style="color:#6c757d;">Key readings from your data</small><br><br>', unsafe_allow_html=True)
-        st.markdown(f'<div class="summary-line"><span>Lowest daily usage</span><b>{metrics["lowest_usage_kwh"]:.2f} kWh</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="summary-line"><span>Recorded days</span><b>{len(daily)}</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="summary-line"><span>Estimated monthly cost</span><b>₹{cost_info["total_estimated_cost"]:,.0f}</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="summary-line"><span>Data source</span><b>{st.session_state.source_name}</b></div>', unsafe_allow_html=True)
-        st.markdown('<br><div class="insight-box"><b>💡 Eco insight</b><p style="margin:0; font-size:0.9rem;">Compare similar days and investigate repeated spikes before assuming they indicate waste.</p></div></div>', unsafe_allow_html=True)
-
-# ----------------- UPLOAD DATA TAB -----------------
-elif page == "Upload Data":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<b>Upload electricity readings</b><br><small style="color:#6c757d;">CSV should contain a timestamp/date column and a consumption column.</small><br><br>', unsafe_allow_html=True)
-    uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
-    col_a, col_b = st.columns([1, 1])
-    with col_a:
-        tariff_input = st.number_input("Electricity tariff (₹ per kWh)", min_value=0.0, max_value=100.0, value=float(st.session_state.tariff), step=0.25)
-    with col_b:
-        st.markdown('<div style="background:#f8f9fa; padding:10px; border-radius:6px; font-size:0.85rem;"><b>Expected format</b><br><code>timestamp,consumption_kwh</code><br><code>2026-10-01 00:00,0.32</code></div>', unsafe_allow_html=True)
-    
-    if uploaded is not None:
-        try:
-            raw_uploaded = pd.read_csv(uploaded)
-            candidate = clean_energy_data(raw_uploaded)
-            st.success(f"Successfully read {len(candidate):,} valid records.")
-            st.dataframe(candidate.head(12), use_container_width=True, hide_index=True)
-            if st.button("Use this dataset", type="primary", use_container_width=True):
-                st.session_state.energy_df = raw_uploaded
-                st.session_state.source_name = uploaded.name
-                st.session_state.tariff = tariff_input
-                st.success("Dataset loaded. Open Overview or Analytics to explore it.")
-                st.rerun()
-        except Exception as exc:
-            st.error(f"Could not load this file: {exc}")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="panel"><b>Active Dataset Preview</b><br>', unsafe_allow_html=True)
-    st.dataframe(daily.head(10), use_container_width=True, hide_index=True)
-    st.download_button("Download active dataset CSV", daily.to_csv(index=False).encode("utf-8"), "ecosense_data.csv", "text/csv")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    if st.button("Restore demonstration dataset"):
-        st.session_state.energy_df = make_sample_data()
-        st.session_state.source_name = "Built-in demonstration dataset"
-        st.rerun()
-
-# ----------------- ANALYTICS TAB -----------------
-elif page == "Analytics":
-    period = st.selectbox("Aggregation", ["Daily", "Weekly", "Monthly"])
-    if period == "Daily":
-        chart_data = daily
-    elif period == "Weekly":
-        chart_data = cleaned_df.set_index("timestamp").resample("W")["consumption_kwh"].sum().reset_index()
-    else:
-        chart_data = cleaned_df.set_index("timestamp").resample("ME")["consumption_kwh"].sum().reset_index()
-        
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    fig_analytics = px.bar(chart_data, x='timestamp', y='consumption_kwh', title=f"{period} Energy Consumption (kWh)")
-    st.plotly_chart(fig_analytics, use_container_width=True, config={"displayModeBar": False})
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    left, right = st.columns(2, gap="small")
-    with left:
-        st.markdown('<div class="panel"><b>Average Usage by Weekday</b>', unsafe_allow_html=True)
-        weekday_avg = daily.groupby('day_of_week')['consumption_kwh'].mean().reset_index()
-        days_map = {0:'Mon', 1:'Tue', 2:'Wed', 3:'Thu', 4:'Fri', 5:'Sat', 6:'Sun'}
-        weekday_avg['day_name'] = weekday_avg['day_of_week'].map(days_map)
-        fig_weekday = px.bar(weekday_avg, x='day_name', y='consumption_kwh', labels={'day_name':'Day', 'consumption_kwh':'Avg kWh'})
-        st.plotly_chart(fig_weekday, use_container_width=True, config={"displayModeBar": False})
-        st.markdown('</div>', unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="panel"><b>Consumption Summary Table</b>', unsafe_allow_html=True)
-        stats_table = pd.DataFrame({
-            "Metric": ["Total", "Average per day", "Maximum day", "Lowest day"], 
-            "Value": [f'{metrics["total_kwh"]:.2f} kWh', f'{metrics["daily_avg_kwh"]:.2f} kWh', f'{metrics["peak_usage_kwh"]:.2f} kWh', f'{metrics["lowest_usage_kwh"]:.2f} kWh']
-        })
-        st.dataframe(stats_table, hide_index=True, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# ----------------- ANOMALY DETECTION TAB -----------------
-elif page == "Anomaly Detection":
-    result = detect_anomalies(daily)
-    anomalies = result[result["is_anomaly"]]
-    
-    c1, c2, c3 = st.columns(3, gap="small")
-    with c1: metric_card("Unusual days", str(len(anomalies)), "", "Potential outliers", "⚠️")
-    with c2: metric_card("Normal days", str(len(result)-len(anomalies)), "", "Within expected range", "✓")
-    with c3: metric_card("Detection method", "Isolation Forest", "", "Unsupervised ML Engine", "🧠")
-    
-    st.markdown('<div class="panel"><b>Anomaly Monitoring Chart</b>', unsafe_allow_html=True)
-    fig_anom = px.scatter(result, x='timestamp', y='consumption_kwh', color='is_anomaly', 
-                          color_discrete_map={True: 'red', False: 'blue'},
-                          title="Daily Usage Anomaly Inspection")
-    st.plotly_chart(fig_anom, use_container_width=True, config={"displayModeBar": False})
-    
-    if anomalies.empty:
-        st.success("No unusual daily readings were flagged in this dataset.")
-    else:
-        st.warning(f"{len(anomalies)} potentially unusual day(s) detected.")
-        display_cols = [c for c in ["timestamp", "consumption_kwh", "z_score", "anomaly_severity"] if c in anomalies.columns]
-        st.dataframe(anomalies[display_cols], use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ----------------- PREDICTIONS TAB -----------------
-elif page == "Predictions":
-    horizon = st.slider("Forecast horizon (days)", 3, 14, 5)
-    try:
-        forecast_df, metrics_eval = train_and_forecast(daily, forecast_days=horizon)
-        st.markdown('<div class="panel"><b>Energy Demand Forecast</b>', unsafe_allow_html=True)
-        st.caption(f"🤖 Random Forest Model Performance: MAE = {metrics_eval['mae']} kWh | RMSE = {metrics_eval['rmse']} kWh")
-        
-        fig_fc = px.bar(forecast_df, x='timestamp', y='predicted_kwh', title=f"Predicted Usage for Next {horizon} Days")
-        st.plotly_chart(fig_fc, use_container_width=True, config={"displayModeBar": False})
-        
-        st.dataframe(forecast_df.rename(columns={"timestamp":"Forecast Date", "predicted_kwh":"Predicted Consumption (kWh)"}), use_container_width=True, hide_index=True)
-        st.download_button("Download forecast CSV", forecast_df.to_csv(index=False).encode("utf-8"), "ecosense_forecast.csv", "text/csv")
-        st.markdown('</div>', unsafe_allow_html=True)
-    except Exception as err:
-        st.error(f"Prediction model requires at least 7 historical days. ({err})")
-
-# ----------------- RECOMMENDATIONS TAB -----------------
-elif page == "Recommendations":
-    anom_df = detect_anomalies(daily)
-    score, recs = calculate_energy_score_and_recs(daily, anom_df)
-    
-    st.markdown(f'<div class="panel"><h2>Energy Efficiency Score: {score}/100</h2><p style="color:#6c757d;">Actionable advice based on patterns detected in your uploaded dataset.</p><hr>', unsafe_allow_html=True)
-    for rec in recs:
-        icon = "⚠️" if rec['type'] == 'warning' else ("✅" if rec['type'] == 'success' else "💡")
-        st.markdown(
-            f"""
-            <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:10px; border-left:4px solid #0d6efd;">
-                <div style="font-size:1.1rem; font-weight:bold;">{icon} {rec['title']}</div>
-                <div style="color:#495057; margin-top:5px;">{rec['body']}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.8rem; color:#6c757d; margin-top:15px;">Disclaimer: EcoSense recommendations are data-driven prompts. They do not identify a specific appliance unless appliance-level readings are supplied.</div>', unsafe_allow_html=True)
-
-st.markdown('<hr><div style="text-align:center; color:#6c757d; font-size:0.85rem;">🌿 EcoSense <span>· Understand Your Energy. Detect Waste. Save Smarter.</span></div>', unsafe_allow_html=True)
